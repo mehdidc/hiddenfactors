@@ -5,10 +5,10 @@
 import matplotlib as mpl
 mpl.use('Agg')
 import os
-from lasagne.generative.autoencoder import Autoencoder, greedy_learn_with_validation
+from lasagnekit.generative.autoencoder import Autoencoder, greedy_learn_with_validation
 
-from lasagne.easy import BatchOptimizer, LightweightModel
-from lasagne.datasets.mnist import MNIST
+from lasagnekit.easy import BatchOptimizer, LightweightModel
+from lasagnekit.datasets.mnist import MNIST
 
 from sklearn.utils import shuffle
 from sklearn.cross_validation import train_test_split
@@ -27,14 +27,13 @@ from skimage.transform import resize
 
 import matplotlib.pyplot as plt
 
-from lasagne import easy
+from lasagnekit import easy
 
-from lasagne.generative.capsule import Capsule
-from lasagne.easy import BatchIterator
+from lasagnekit.generative.capsule import Capsule
+from lasagnekit.easy import BatchIterator
 import glob
 import os
 
-from lasagne.easy import BatchOptimizer, LightweightModel
 from lasagne import init
 from collections import OrderedDict
 from lasagne import init, layers, updates, nonlinearities
@@ -43,14 +42,14 @@ from lasagne.layers import helper
 import theano.tensor as T
 from theano.sandbox import rng_mrg
 from sklearn.cross_validation import train_test_split
-from lasagne.datasets.fonts import Fonts
+from lasagnekit.datasets.fonts import Fonts
 import theano
 from collections import OrderedDict
 import theano.tensor as T
 
-from lasagne.generative.capsule import Capsule
+from lasagnekit.generative.capsule import Capsule
 from lasagne.layers import Layer
-from lasagne.datasets.fonts import Fonts
+from lasagnekit.datasets.fonts import Fonts
 
 
 from lightexperiments.light import Light
@@ -66,6 +65,38 @@ light.set_seed(seed) # save the content of the seed
 light.tag("decorrelation") # for tagging your experiments
 #light.tag("vary_hidden_factors")
 
+class Unpool2DLayer(layers.Layer):
+    """
+    This layer performs unpooling over the last two dimensions
+    of a 4D tensor.
+    """
+    def __init__(self, incoming, ds, **kwargs):
+        
+        super(Unpool2DLayer, self).__init__(incoming, **kwargs)
+
+        if (isinstance(ds, int)):
+            raise ValueError('ds must have len == 2')
+        else:
+            ds = tuple(ds)
+            if len(ds) != 2:
+                raise ValueError('ds must have len == 2')
+            if ds[0] != ds[1]:
+                raise ValueError('ds should be symmetric (I am lazy)')
+            self.ds = ds
+
+    def get_output_shape_for(self, input_shape):
+        output_shape = list(input_shape)
+
+        output_shape[2] = input_shape[2] * self.ds[0]
+        output_shape[3] = input_shape[3] * self.ds[1]
+
+        return tuple(output_shape)
+
+    def get_output_for(self, input, **kwargs):
+        ds = self.ds
+        input_shape = input.shape
+        output_shape = self.get_output_shape_for(input_shape)
+        return input.repeat(2, axis = 2).repeat(2, axis = 3)
 
 def binarize(X):
     X_b = np.empty(X.shape, dtype=X.dtype)
@@ -137,19 +168,25 @@ light.set("h", h)
 
 # In[4]:
 
-rescale = True
+rescale = True 
 
 if rescale:
-    from skimage.filter import threshold_otsu
-    from skimage.transform import resize
-    X_b = np.zeros((X.shape[0], w, h))
-    for i in range(X_b.shape[0]):
-        X_b[i] = resize(X[i].reshape((w_orig, h_orig)), (w, h))
-    X = X_b
-    #X = X <= threshold_otsu(X)
-    X = X.astype(np.float32)
-    X = X.reshape((X.shape[0], w*h))
-    X=1-X
+    name = "{0}-{1}x{2}.npy".format(dataset, w, h)
+    if os.path.exists(name):
+        X =  np.load(name)
+    else:
+        from skimage.filter import threshold_otsu
+        from skimage.transform import resize
+        X_b = np.zeros((X.shape[0], w, h))
+        for i in range(X_b.shape[0]):
+            X_b[i] = resize(X[i].reshape((w_orig, h_orig)), (w, h))
+        X = X_b
+        #X = X <= threshold_otsu(X)
+        X = X.astype(np.float32)
+        X = X.reshape((X.shape[0], w*h))
+        X=1-X
+        np.save(name, X)
+
 
 light.set("rescaled", rescale)
 
@@ -232,6 +269,8 @@ class MyBatchOptimizer(BatchOptimizer):
 # In[10]:
 
 from lasagne.layers import cuda_convnet, Conv2DLayer
+#from lasagne.layers.dnn import Conv2DDNNLayer
+
 
 def cross_entropy(truth, pred):
     return -(truth * T.log(pred) + (1 - truth) * T.log(1 - pred)).sum(axis=1).mean()
@@ -266,7 +305,7 @@ class Model:
 
 # In[11]:
 
-model_type = "fully_connected" # or "convnet"
+model_type = "convnet" # or "convnet"
 light.set(model_type, model_type)
 
 # ### Fully connected
@@ -323,7 +362,7 @@ if model_type == "fully_connected":
 if model_type == "convnet":
 
     ## CNN
-    nb_filters=32
+    nb_filters=64
     size_filters=5
     nb_hidden=1000
 
@@ -343,13 +382,27 @@ if model_type == "convnet":
     x_in_reshaped = layers.ReshapeLayer(l_in, ([0], 1, w, h))
 
     # conv1
-    l_conv = cuda_convnet.Conv2DCCLayer(
+    l_conv = layers.Conv2DLayer(
         x_in_reshaped,
         num_filters=nb_filters_encoder,
-        filter_size=(size_filters, size_filters_encoder),
+        filter_size=(size_filters_encoder, size_filters_encoder),
         nonlinearity=nonlinearities.rectify,
-        dimshuffle=True,
+        #dimshuffle=True,
     )
+
+    l_conv = layers.Pool2DLayer(
+            l_conv,
+            pool_size=2,
+    )
+
+    #l_conv = layers.Conv2DLayer(
+    #    l_conv,
+    #    num_filters=nb_filters_encoder,
+    #    filter_size=(size_filters_encoder, size_filters_encoder),
+    #    nonlinearity=nonlinearities.rectify,
+    #    #dimshuffle=True,
+    #)
+
     l_hid = layers.DenseLayer(
         l_conv,
         num_units=nb_hidden,
@@ -389,22 +442,40 @@ if model_type == "convnet":
 
 
     # unflatten layer
-    hid = layers.DenseLayer(l_hid,
-                            num_units=nb_filters_decoder * (w - size_filters_decoder + 1) * (h - size_filters_decoder + 1))
-    hid = layers.ReshapeLayer(hid,
-                              ([0], nb_filters_decoder, (w - size_filters_decoder + 1), (h - size_filters_decoder + 1)))
 
-    l_unconv = Conv2DLayer(
+    k = 1
+    hid = layers.DenseLayer(l_hid,
+                            num_units=nb_filters_decoder * 
+                                      (w + k*(size_filters_decoder - 1)) * 
+                                      (h + k*(size_filters_decoder - 1)) / 4  )
+    hid = layers.ReshapeLayer(hid,
+                              ([0], nb_filters_decoder, 
+                               (w + k*(size_filters_decoder - 1))/2, 
+                               (h + k*(size_filters_decoder - 1))/2))
+    hid = Unpool2DLayer(
+            hid,
+            (2, 2)
+    )
+    l_unconv = layers.Conv2DLayer(
         hid,
         num_filters=nb_filters,
         filter_size=(size_filters_decoder, size_filters_decoder),
         nonlinearity=nonlinearities.linear,
-        border_mode="full"
     )
+
+    #l_unconv = layers.Conv2DLayer(
+    #    l_unconv,
+    #    num_filters=nb_filters,
+    #    filter_size=(size_filters_decoder, size_filters_decoder),
+    #    nonlinearity=nonlinearities.linear,
+    #    pad="full"
+    #)
+
     l_unconv_sum = SumLayer(l_unconv, axis=1)
 
     l_decoder_out = layers.ReshapeLayer(l_unconv_sum, ([0], w*h))
     l_decoder_out = layers.NonlinearityLayer(l_decoder_out, nonlinearities.sigmoid)
+
 
     x_to_z = LightweightModel([l_in], [l_latent])
     x_to_y = LightweightModel([l_in], [l_observed])
@@ -437,11 +508,11 @@ functions = dict(
         params=["X"]
     ),
     reconstruct=dict(
-        get_output=lambda model, X: l_decoder_out.get_output(X),
+        get_output=lambda model, X: layers.get_output(l_decoder_out, X),
         params=["X"]
     ),
     get_reconstruction_error=dict(
-        get_output=lambda model, X: ((X-l_decoder_out.get_output(X))**2).sum(axis=1).mean(),
+        get_output=lambda model, X: ((X-layers.get_output(l_decoder_out, X))**2).sum(axis=1).mean(),
         params=["X"]
     ),
     get_cross_correlation=dict(
@@ -470,7 +541,7 @@ light.set("batch_size", batch_optimizer.batch_size)
 light.set("optimization_method", "rmsprop")
 light.set("learning_rate", learning_rate)
 
-loss_rec_coef = 1
+loss_rec_coef = 5 
 loss_supervised_coef = 10
 loss_crosscor_coef = 10
 
@@ -498,8 +569,8 @@ capsule = Capsule(
 )
 Z_batch = T.matrix("z_batch")
 capsule.decode = theano.function([Z_batch, capsule.v_tensors["y"]],
-                                  l_decoder_out.get_output({l_latent: Z_batch,
-                                                            l_observed: capsule.v_tensors["y"]}))
+                                  layers.get_output(l_decoder_out, {l_latent: Z_batch,
+                                                    l_observed: capsule.v_tensors["y"]}))
 
 
 # ## Model graph visualization
@@ -522,7 +593,7 @@ try:
 except KeyboardInterrupt:
     print("interruption...")
 
-from lasagne.misc.plot_weights import grid_plot
+from lasagnekit.misc.plot_weights import grid_plot
 
 if model_type == "convnet":
     layers_enc = get_all_layers(model.x_to_z.output_layers[0])
@@ -535,7 +606,7 @@ elif model_type == "fully_connected":
     for W in (layers[1].W.get_value().T, layers[-1].W.get_value()):
         W = W.reshape((W.shape[0], w, h))
         light.append("features", light.insert_blob(W.tolist()))
-from lasagne.easy import get_stat
+from lasagnekit.easy import get_stat
 nb_samples_cov = 5000
 light.set("nb_samples_cov", nb_samples_cov)
 z = capsule.encode(X[0:nb_samples_cov])
