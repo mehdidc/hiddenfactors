@@ -25,7 +25,7 @@ from collections import defaultdict
 from report_generic import get_figures
 def save_reports(reports):
     output_file("vary_hidden_factors.html")
-    
+
     datasets = set(r["dataset"] for r in reports)
 
     reports = filter(lambda r:r["dataset"]=="font", reports)
@@ -49,17 +49,17 @@ def save_reports(reports):
         #    continue
         p = figure(title="latent size:{0}".format(latent_size))
         figures.append(p)
-        hm = HeatMap(pd.DataFrame(np.abs(np.array(r["hidfactcorr"]))), 
-                     title="correlation matrix", 
-                     palette=palette, 
+        hm = HeatMap(pd.DataFrame(np.abs(np.array(r["hidfactcorr"]))),
+                     title="correlation matrix",
+                     palette=palette,
                      tools=tools,
                      legend=True)
         figures.append(hm)
         figures.extend(get_figures(r))
-        
+
         vals = np.array(r["hidfactcorr"])
         vals = np.extract(1 -  np.eye(vals.shape[0]), vals)
-        
+
         hist = Histogram(vals, bins=50, legend=True, tools=tools)
         figures.append(hist)
         corr_data["latent {0}(m:{1:.4f},s:{2:.3f})".format(latent_size, vals.mean(), vals.std())] = vals
@@ -70,7 +70,7 @@ def save_reports(reports):
         #rec_data["epoch"] = r["epoch"]
         #acc_data["epoch"] = r["epoch"]
         #crosscor_data["epoch"] = r["epoch"]
-    
+
 
     rec = Line(rec_data, title="reconstruction valid", xlabel="epoch", ylabel="reconstruction", legend=True, tools=tools)
     acc = Line(acc_data, title="accuracy valid", xlabel="epoch", ylabel="accuracy", legend=True, tools=tools)

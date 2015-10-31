@@ -4,56 +4,40 @@
 # In[1]:
 import matplotlib as mpl
 mpl.use('Agg')
-import os
-from lasagnekit.generative.autoencoder import Autoencoder, greedy_learn_with_validation
-
 from lasagnekit.easy import BatchOptimizer, LightweightModel
 from lasagnekit.datasets.mnist import MNIST
 
 from sklearn.utils import shuffle
 from sklearn.cross_validation import train_test_split
 
-from lasagne import layers, updates, init, nonlinearities
+from lasagne import layers, updates,  nonlinearities
 import theano.tensor as T
 from theano.sandbox import rng_mrg
 import theano
-import matplotlib.pyplot as plt
 import numpy as np
 from lasagne.layers import get_all_layers
-
-from skimage.io import imread
-from skimage.filter import threshold_otsu
 from skimage.transform import resize
-
-import matplotlib.pyplot as plt
-
-from lasagnekit import easy
-
 from lasagnekit.generative.capsule import Capsule
-from lasagnekit.easy import BatchIterator
-import glob
-import os
-
-from lasagne import init
 from collections import OrderedDict
-from lasagne import init, layers, updates, nonlinearities
+from lasagne import layers, updates, nonlinearities
 from lasagne.layers.helper import get_all_layers
 from lasagne.layers import helper
-import theano.tensor as T
 from theano.sandbox import rng_mrg
 from sklearn.cross_validation import train_test_split
 from lasagnekit.datasets.fonts import Fonts
-import theano
-from collections import OrderedDict
-import theano.tensor as T
 
 from lasagnekit.generative.capsule import Capsule
 from lasagne.layers import Layer
 from lasagnekit.datasets.fonts import Fonts
 
 
+import sys
+import uuid
+
 from lightexperiments.light import Light
 light = Light()
+
+
 
 light.launch()
 light.initials() # save the date and init the timer
@@ -63,6 +47,18 @@ seed = 1234
 np.random.seed(seed)
 light.set_seed(seed) # save the content of the seed
 light.tag("decorrelation") # for tagging your experiments
+
+import argparse
+import uuid
+parser = argparse.ArgumentParser()
+parser.add_argument("latent_size", type=int, default=5)
+parser.add_argument("custom_id", type=str, default=str(uuid.uuid1()))
+
+args = parser.parse_args()
+print(args.custom_id)
+light.set("custom_id", args.custom_id)
+latent_size = args.latent_size
+
 #light.tag("vary_hidden_factors")
 
 class Unpool2DLayer(layers.Layer):
@@ -71,7 +67,7 @@ class Unpool2DLayer(layers.Layer):
     of a 4D tensor.
     """
     def __init__(self, incoming, ds, **kwargs):
-        
+
         super(Unpool2DLayer, self).__init__(incoming, **kwargs)
 
         if (isinstance(ds, int)):
@@ -98,20 +94,6 @@ class Unpool2DLayer(layers.Layer):
         output_shape = self.get_output_shape_for(input_shape)
         return input.repeat(2, axis = 2).repeat(2, axis = 3)
 
-def binarize(X):
-    X_b = np.empty(X.shape, dtype=X.dtype)
-    for i in range(X.shape[0]):
-        X_b[i] = 1. * (X[i] <= threshold_otsu(X[i]))
-    return X_b
-
-def resize_all(X, w, h):
-    if X.shape[1] == w and X.shape[2] == h:
-        return X
-    X_b = np.empty((X.shape[0], w, h), dtype=X.dtype)
-    for i in range(X.shape[0]):
-        X_b[i] = resize(X[i], (w, h))
-    return X_b
-
 class SumLayer(Layer):
     def __init__(self,
                  incoming,
@@ -133,94 +115,54 @@ class SumLayer(Layer):
 
 # # Load & pre-process data
 
+from lasagnekit.datasets.cached import Cached
+from lasagnekit.datasets.rescaled import Rescaled
+
 # In[2]:
 
 
-dataset = "font"
+dataset = "fonts"
 light.set("dataset", dataset)
 
 
-if dataset == "font":
-    data = Fonts(kind="all_64", labels_kind="letters")
-    data.load()
-    X = data.X
-    X = X.astype(np.float32)
-    y = data.y.astype(np.int32)
-    nb_outputs = 26
-    w_orig, h_orig = 64, 64
-elif dataset == "mnist":
+if dataset == "mnist":
     data = MNIST()
-    data.load()
-    X = data.X
-    X = X.astype(np.float32)
-    y = data.y.astype(np.int32)
-    nb_outputs = 10
-    w_orig, h_orig = 28, 28
-
-
-
-# In[3]:
+elif dataset == "fonts":
+    data = Fonts(kind="all_64",
+                 labels_kind="letters")
 
 w, h = 28, 28
 light.set("w", w)
 light.set("h", h)
 
 
-# In[4]:
-
-rescale = True 
-
-if rescale:
-    name = "{0}-{1}x{2}.npy".format(dataset, w, h)
-    if os.path.exists(name):
-        X =  np.load(name)
-    else:
-        from skimage.filter import threshold_otsu
-        from skimage.transform import resize
-        X_b = np.zeros((X.shape[0], w, h))
-        for i in range(X_b.shape[0]):
-            X_b[i] = resize(X[i].reshape((w_orig, h_orig)), (w, h))
-        X = X_b
-        #X = X <= threshold_otsu(X)
-        X = X.astype(np.float32)
-        X = X.reshape((X.shape[0], w*h))
-        X=1-X
-        np.save(name, X)
+data = Cached(Rescaled(data, (w, h)))
+data.load()
 
 
-light.set("rescaled", rescale)
+X = data.X
+y = data.y
+output_dim = data.output_dim
+real_w, real_h = data.img_dim
 
 
-# In[5]:
+# In[3]:
+
 
 from sklearn.preprocessing import label_binarize
-y = label_binarize(y, np.arange(nb_outputs))
+y = label_binarize(y, np.arange(output_dim))
 y = y.astype(np.float32)
-
-
-# In[6]:
-
-output_dim = y.shape[1]
-
-
-# In[7]:
-
-#plt.imshow(X[120].reshape((28, 28)), cmap="gray")
-
-
-# In[8]:
 
 X, y = shuffle(X, y, random_state=seed)
 train, test = train_test_split(range(X.shape[0]), test_size=0.25)
 
-
-# In[9]:
 
 nb_samples_learning_curve = 1000
 nb_tries_learning_curve = 10
 
 light.set("nb_samples_learning_curve", nb_samples_learning_curve)
 light.set("nb_tries_learning_curve", nb_tries_learning_curve)
+
 
 class MyBatchOptimizer(BatchOptimizer):
 
@@ -268,7 +210,7 @@ class MyBatchOptimizer(BatchOptimizer):
 
 # In[10]:
 
-from lasagne.layers import cuda_convnet, Conv2DLayer
+#from lasagne.layers import cuda_convnet, Conv2DLayer
 #from lasagne.layers.dnn import Conv2DDNNLayer
 
 
@@ -311,7 +253,11 @@ light.set(model_type, model_type)
 # ### Fully connected
 
 # In[12]:
-latent_size = 5
+
+
+
+print("latent_size", latent_size)
+
 if model_type == "fully_connected":
     ## fully connected
     num_hidden_units = 2000
@@ -445,12 +391,12 @@ if model_type == "convnet":
 
     k = 1
     hid = layers.DenseLayer(l_hid,
-                            num_units=nb_filters_decoder * 
-                                      (w + k*(size_filters_decoder - 1)) * 
+                            num_units=nb_filters_decoder *
+                                      (w + k*(size_filters_decoder - 1)) *
                                       (h + k*(size_filters_decoder - 1)) / 4  )
     hid = layers.ReshapeLayer(hid,
-                              ([0], nb_filters_decoder, 
-                               (w + k*(size_filters_decoder - 1))/2, 
+                              ([0], nb_filters_decoder,
+                               (w + k*(size_filters_decoder - 1))/2,
                                (h + k*(size_filters_decoder - 1))/2))
     hid = Unpool2DLayer(
             hid,
@@ -485,6 +431,9 @@ if model_type == "convnet":
     model.x_to_y = x_to_y
     model.z_to_x = z_to_x
 
+
+from lasagnekit.misc.draw_net import draw_to_file
+draw_to_file(get_all_layers(l_decoder_out), "model.svg")
 
 # In[35]:
 
@@ -541,7 +490,7 @@ light.set("batch_size", batch_optimizer.batch_size)
 light.set("optimization_method", "rmsprop")
 light.set("learning_rate", learning_rate)
 
-loss_rec_coef = 5 
+loss_rec_coef = 5
 loss_supervised_coef = 10
 loss_crosscor_coef = 10
 
@@ -572,28 +521,12 @@ capsule.decode = theano.function([Z_batch, capsule.v_tensors["y"]],
                                   layers.get_output(l_decoder_out, {l_latent: Z_batch,
                                                     l_observed: capsule.v_tensors["y"]}))
 
-
-# ## Model graph visualization
-
-# In[36]:
-
-#from lasagne.misc.draw_net import draw_to_file
-#draw_to_file(get_all_layers(l_decoder_out), "model.svg")
-
-#from IPython.display import SVG
-#SVG("model.svg")
-
-
 # ## Training
-
-# In[37]:
 
 try:
     capsule.fit(X=X[train], y=y[train])
 except KeyboardInterrupt:
     print("interruption...")
-
-from lasagnekit.misc.plot_weights import grid_plot
 
 if model_type == "convnet":
     layers_enc = get_all_layers(model.x_to_z.output_layers[0])
@@ -606,12 +539,67 @@ elif model_type == "fully_connected":
     for W in (layers[1].W.get_value().T, layers[-1].W.get_value()):
         W = W.reshape((W.shape[0], w, h))
         light.append("features", light.insert_blob(W.tolist()))
-from lasagnekit.easy import get_stat
+
+
 nb_samples_cov = 5000
 light.set("nb_samples_cov", nb_samples_cov)
 z = capsule.encode(X[0:nb_samples_cov])
 light.set("hidfactcov", np.cov(z.T).tolist())
 light.set("hidfactcorr", np.corrcoef(z.T).tolist())
+
+def sharpness(images):
+    _, gy, gx = np.gradient(images)
+    return (np.sqrt(gx**2 + gy**2)).mean(axis=(1, 2))
+
+nb = 10000
+x_ = X[test][0:nb]
+x_hat_ = capsule.reconstruct(x_)
+
+x_ = x_.reshape((x_.shape[0], w, h))
+x_hat_ = x_hat_.reshape((x_hat_.shape[0], w, h))
+
+# lower = less sharp, more blurry
+print("original", sharpness(x_).mean())
+print("reconstruction", sharpness(x_hat_).mean())
+
+light.set("sharpness_test", sharpness(x_).tolist())
+light.set("sharpness_test_rec", sharpness(x_hat_).tolist())
+
+#generation
+nb = 10 # nb of generate image
+labels = np.arange(output_dim)# labels to consider (by default, all)
+std_units=2# nb of std units of values of latent dim around the mean to consider
+
+light.set("generation_nb_images_per_label", nb)
+light.set("generation_std_units", std_units)
+
+L = latent_size
+
+x_ = X[train][0:10000]
+z_ = capsule.encode(x_)
+latent_std = np.std(z_, axis=0)
+latent_mean = np.mean(z_, axis=0)
+
+sharpness_generated_per_latent = []
+for latent_dim in range(latent_size):
+    print("hidden factor : {0}".format(latent_dim))
+    ys = np.eye(output_dim)[labels].repeat(nb, axis=0)
+    seq = np.linspace(latent_mean[latent_dim] - latent_std[latent_dim]*std_units,
+                      latent_mean[latent_dim] + latent_std[latent_dim]*std_units,
+                      nb)
+    z = np.zeros((nb, L))
+    z[:, latent_dim] = seq
+    z = z.repeat(len(labels), axis=0)
+    z = z.reshape((nb, len(labels), L))
+    z = z.transpose((1, 0, 2))
+    z = z.reshape((nb*len(labels), L))
+    z = z.astype(np.float32)
+    ys = ys.astype(np.float32)
+    c = capsule.decode(z, ys)
+    c = c.reshape((c.shape[0], w, h))
+    sharpness_generated_per_latent.append((sharpness(c)).tolist())
+light.set("sharpness_generated_per_latent", sharpness_generated_per_latent)
+
 # In[47]:
 light.endings() # save the duration
 light.store_experiment() # update the DB
