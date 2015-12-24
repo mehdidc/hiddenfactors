@@ -210,9 +210,6 @@ class MyBatchOptimizer(BatchOptimizer):
 
 # In[10]:
 
-#from lasagne.layers import cuda_convnet, Conv2DLayer
-#from lasagne.layers.dnn import Conv2DDNNLayer
-
 
 def cross_entropy(truth, pred):
     return -(truth * T.log(pred) + (1 - truth) * T.log(1 - pred)).sum(axis=1).mean()
@@ -276,7 +273,7 @@ if model_type == "fully_connected":
 
     # learned representation
     l_observed = layers.DenseLayer(l_encoder4, num_units=output_dim,
-                                      nonlinearity=T.nnet.softmax)
+                                   nonlinearity=T.nnet.softmax)
 
     l_latent = layers.DenseLayer(l_encoder4,
                                  num_units=latent_size,
@@ -449,11 +446,11 @@ input_variables["y"] = dict(tensor_type=T.matrix)
 
 functions = dict(
     encode=dict(
-        get_output=lambda model, X:model.x_to_z.get_output(X)[0],
+        get_output=lambda model, X: model.x_to_z.get_output(X)[0],
         params=["X"]
     ),
     predict=dict(
-        get_output=lambda model, X:(model.x_to_y.get_output(X)[0]).argmax(axis=1),
+        get_output=lambda model, X: (model.x_to_y.get_output(X)[0]).argmax(axis=1),
         params=["X"]
     ),
     reconstruct=dict(
