@@ -3,7 +3,50 @@ import numpy as np
 from lasagne import layers, nonlinearities
 from helpers import Unpool2DLayer
 from lasagnekit.easy import InputOutputMapping
+import theano.tensor as T
 
+def build_fully(latent_size=4, nb_hidden=1000, w=28, h=28, c=1, output_dim=10):
+    num_hidden_units = nb_hidden
+    input_dim = w*h*c
+    l_in = layers.InputLayer((None, input_dim))
+    # encoder
+    l_encoder1 = layers.DenseLayer(l_in, num_units=num_hidden_units)
+    l_encoder2 = layers.DenseLayer(l_encoder1, num_units=num_hidden_units)
+    l_encoder3 = layers.DenseLayer(l_encoder2, num_units=num_hidden_units)
+    l_encoder4 = layers.DenseLayer(l_encoder3, num_units=num_hidden_units)
+    l_encoder4 = layers.DenseLayer(l_encoder4, num_units=num_hidden_units, name="pre_code_layer")
+
+    # learned representation
+    l_observed = layers.DenseLayer(l_encoder4, num_units=output_dim,
+                                      nonlinearity=T.nnet.softmax, name="observed")
+
+    l_latent = layers.DenseLayer(l_encoder4,
+                                 num_units=latent_size,
+                                 nonlinearity=None, name="factors") # linear
+
+    l_representation = layers.concat([l_observed, l_latent])
+
+    # decoder
+    l_decoder1 = layers.DenseLayer(l_representation, num_units=num_hidden_units)
+    l_decoder2 = layers.DenseLayer(l_decoder1, num_units=num_hidden_units)
+    l_decoder3 = layers.DenseLayer(l_decoder2, num_units=num_hidden_units)
+    l_decoder4 = layers.DenseLayer(l_decoder3, num_units=num_hidden_units)
+    l_encoder4 = layers.DenseLayer(l_encoder4, num_units=num_hidden_units)
+
+    l_decoder_out = layers.DenseLayer(l_decoder4, num_units=input_dim,
+                                       nonlinearity=nonlinearities.sigmoid)
+
+    x_to_z = InputOutputMapping([l_in], [l_latent])
+    x_to_y = InputOutputMapping([l_in], [l_observed])
+    z_to_x = InputOutputMapping([l_observed, l_latent], [l_decoder_out])
+    model = Model()
+    model.x_to_z = x_to_z
+    model.x_to_y = x_to_y
+    model.z_to_x = z_to_x
+    model.l_reconstruction = l_decoder_out
+    model.l_latent = l_latent
+    model.l_observed = l_observed
+    return model
 
 def build_convnet(nb_filters=64, size_filters=5, nb_hidden=1000,
                   w=32, h=32, c=1, output_dim=10, latent_size=100):

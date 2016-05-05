@@ -4,7 +4,8 @@ import os
 
 import theano
 
-from sklearn.cross_validation import train_test_split
+import dill
+import sys
 from sklearn.preprocessing import label_binarize
 from sklearn.utils import shuffle
 from skimage.io import imsave
@@ -14,6 +15,7 @@ from lasagnekit.datasets.mnist import MNIST
 from lasagnekit.datasets.fonts import Fonts
 from lasagnekit.datasets.chairs import Chairs
 from lasagnekit.nnet.capsule import Capsule
+from lasagnekit.datasets.helpers import load_once
 from lasagnekit.easy import build_batch_iterator
 from lasagnekit.easy import BatchOptimizer
 
@@ -22,13 +24,16 @@ from collections import OrderedDict
 
 from invoke import task
 
-from model import build_convnet
+from model import build_convnet, build_fully
 from helpers import cross_correlation
 
+
+sys.setrecursionlimit(500000)
+
 datasets = dict(
-    mnist=lambda: MNIST(),
-    fonts=lambda: Fonts(),
-    chairs=lambda: Chairs(size=(64, 64), nb=32),
+    mnist=lambda: (MNIST)(),
+    fonts=lambda: (Fonts)(),
+    chairs=lambda: Chairs(size=(64, 64), nb=128),
 )
 
 
@@ -43,8 +48,8 @@ class MyBatchOptimizer(BatchOptimizer):
 
 
 @task
-def train(dataset="mnist"):
-
+def train(dataset="mnist", modelname="fully"):
+    batch_size = 128
     data = datasets[dataset]()
     data.load()
     if hasattr(data, "online") and data.online is True:
@@ -76,11 +81,15 @@ def train(dataset="mnist"):
         X = X.transpose((0, 2, 3, 1))
         return X
 
-    model = build_convnet(
-            nb_filters=96, size_filters=5,
-            nb_hidden=1000,
-            w=w, h=h,
-            c=c, output_dim=o, latent_size=100)
+    if modelname == "convnet":
+        model = build_convnet(
+                nb_filters=96, size_filters=5,
+                nb_hidden=1000,
+                w=w, h=h,
+                c=c, output_dim=o, latent_size=100)
+    elif modelname == "fully":
+        model = build_fully(nb_hidden=1000, w=w, h=h, c=c, output_dim=o, latent_size=10)
+
     l_rec = model.l_reconstruction
 
     functions = dict(
@@ -116,7 +125,7 @@ def train(dataset="mnist"):
     batch_optimizer = MyBatchOptimizer(
         verbose=1,
         max_nb_epochs=300000,
-        batch_size=128,
+        batch_size=batch_size,
         optimization_procedure=(updates.rmsprop,
                                 {"learning_rate": learning_rate})
     )
@@ -160,6 +169,9 @@ def train(dataset="mnist"):
         capsule.h_avg = (n * capsule.h_avg + h.mean(axis=0)) / (n + 1)
         capsule.h_sqr_avg = (n * capsule.h_sqr_avg + (h**2).mean(axis=0)) / (n + 1)
         capsule.n += 1
+        if len(batch_optimizer.stats) % 1000 == 0:
+            with open("out.pkl", "w") as fd:
+                dill.dump(capsule, fd)
 
         if len(batch_optimizer.stats) % 100 == 0:
             cnt = len(batch_optimizer.stats) / 10
@@ -195,6 +207,8 @@ def train(dataset="mnist"):
             #        h_avg, np.diag(h_var), size=10)
             h_gen = h_gen.astype(np.float32)
             y = np.zeros((h_gen.shape[0], data.output_dim))
+            cls = np.random.randint(0, data.output_dim, size=(h_gen.shape[0],))
+            y[np.arange(h_gen.shape[0]), cls] = 1.
             y = y.astype(np.float32)
             x_rec = capsule.decode(h_gen, y)
             x_rec = deprocess(x_rec)
